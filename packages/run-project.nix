@@ -36,9 +36,6 @@ pkgs.writeShellApplication {
       "$@"
     )
 
-    # hijack default browser
-    #export BROWSER="cog"
-
     URL="http://localhost:8188"
     comfy-ui & COMFY_PID=$!
 
@@ -52,7 +49,7 @@ pkgs.writeShellApplication {
         sleep 1
     done
 
-    echo "Launching cog"
+    echo "Launching"
     xdg-open "$URL"
 
     # restore previous workflows
