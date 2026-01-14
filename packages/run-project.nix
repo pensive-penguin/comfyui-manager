@@ -32,7 +32,7 @@ pkgs.writeShellApplication {
       "--open"
       "--lowvram"
       "--enable-manager"
-      "--output-directory" "$(pwd)/outputs"
+      "--output-directory" "$PROJECT_DIR/outputs"
       "$@"
     )
 
