@@ -25,7 +25,7 @@ pkgs.writeShellApplication {
     export PYTHONPATH="$NATSORT_PATH''${PYTHONPATH:+:''$PYTHONPATH}"
 
     # prepare workflows
-    rm -rf "$WORKFLOWS_DIR"
+    mv "$WORKFLOWS_DIR" "$WORKFLOWS_DIR~"
     ln -s "$PROJECT_DIR/workflows" "$WORKFLOWS_DIR"
 
     export COMFY_ARGS=(
@@ -54,6 +54,10 @@ pkgs.writeShellApplication {
 
     echo "Launching cog"
     xdg-open "$URL"
+
+    # restore previous workflows
+    rm "$WORKFLOWS_DIR"
+    mv "$WORKFLOWS_DIR~" "$WORKFLOWS_DIR"
 
     echo "Closing server"
     kill $COMFY_PID
