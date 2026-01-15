@@ -44,16 +44,39 @@ pkgs.writeShellApplication {
             rm -f "$WORKFLOWS_DIR"
             mv "$WORKFLOWS_DIR~" "$WORKFLOWS_DIR"
         fi
+
+        if [ -e "$COMFY_HOME/output~" ]; then
+            rm -f "$COMFY_HOME/output"
+            mv "$COMFY_HOME/output~" "$COMFY_HOME/output"
+        fi
+
+        if [ -e "$COMFY_HOME/input~" ]; then
+            rm -f "$COMFY_HOME/input"
+            mv "$COMFY_HOME/input~" "$COMFY_HOME/input"
+        fi
     }
 
     # run cleanup on exit or ctrl+c
     trap cleanup EXIT INT TERM ERR
 
+    if [ ! -e "$PROJECT_DIR/output" ]; then
+        mkdir "$PROJECT_DIR/output"
+    fi
+
+    mv "$COMFY_HOME/output" "$COMFY_HOME/output~"
+    ln -s "$PROJECT_DIR/output" "$COMFY_HOME/output"
+
+    mv "$COMFY_HOME/input" "$COMFY_HOME/input~"
+    ln -s "$PROJECT_DIR/input" "$COMFY_HOME/input"
+
+    if [ ! -e "$PROJECT_DIR/input" ]; then
+        mkdir "$PROJECT_DIR/input"
+    fi
+
     export COMFY_ARGS=(
       "--open"
       "--lowvram"
       "--enable-manager"
-      "--output-directory" "$PROJECT_DIR/outputs"
       "--port=$PORT"
       "$@"
     )
