@@ -64,23 +64,15 @@ pkgs.writeShellApplication {
     fi
 
     mv "$COMFY_HOME/output" "$COMFY_HOME/output~"
-    ln -s "$PROJECT_DIR/output" "$COMFY_HOME/output"
+    ln -s "$PROJECT_DIR/output" "$COMFY_HOME"
 
     mv "$COMFY_HOME/input" "$COMFY_HOME/input~"
-    ln -s "$PROJECT_DIR/input" "$COMFY_HOME/input"
+    ln -s "$PROJECT_DIR/input" "$COMFY_HOME"
 
     if [ ! -e "$PROJECT_DIR/input" ]; then
         mkdir "$PROJECT_DIR/input"
     fi
 
-    export COMFY_ARGS=(
-      "--open"
-      "--lowvram"
-      "--enable-manager"
-      "--port=$PORT"
-      "$@"
-    )
-
-    comfy-ui
+    comfy-ui --open --lowvram --enable-manager --port=$PORT
   '';
 }
