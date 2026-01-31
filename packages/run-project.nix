@@ -73,6 +73,6 @@ pkgs.writeShellApplication {
         mkdir "$PROJECT_DIR/input"
     fi
 
-    comfy-ui --open --lowvram --enable-manager --port=$PORT
+    comfy-ui --lowvram --enable-manager --port=$PORT
   '';
 }
