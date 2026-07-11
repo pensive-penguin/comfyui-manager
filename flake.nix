@@ -1,9 +1,11 @@
 {
-  description = "A project-based wrapper for ComfyUI";
+  description = "Description for the project";
 
   inputs = {
+    flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     comfyui-nix.url = "github:utensils/comfyui-nix";
+    import-tree.url = "github:vic/import-tree";
   };
 
   nixConfig = {
@@ -22,34 +24,6 @@
     ];
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    comfyui-nix,
-  }: let
-    supportedSystems = ["x86_64-linux" "aarch64-linux"];
-    forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-    pkgsFor = system: nixpkgs.legacyPackages.${system};
-  in {
-    packages = forAllSystems (system: let
-      pkgs = pkgsFor system;
-      comfy-pkg = comfyui-nix.packages.${system}.cuda;
-    in {
-      create-project = pkgs.callPackage ./packages/create-project.nix {inherit pkgs;};
-      run-project = pkgs.callPackage ./packages/run-project.nix {inherit pkgs comfy-pkg;};
-      default = self.packages.${system}.run-project;
-    });
-
-    # Allows you to use `nix run .#create-project`
-    apps = forAllSystems (system: {
-      create-project = {
-        type = "app";
-        program = "${self.packages.${system}.create-project}/bin/create-project";
-      };
-      run-project = {
-        type = "app";
-        program = "${self.packages.${system}.run-project}/bin/run-project";
-      };
-    });
-  };
+  outputs = inputs @ {flake-parts, ...}:
+    flake-parts.lib.mkFlake {inherit inputs;} (inputs.import-tree ./modules);
 }
