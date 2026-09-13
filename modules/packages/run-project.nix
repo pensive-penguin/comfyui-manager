@@ -21,7 +21,7 @@
         PROJECTS="$COMFY_HOME/projects"
 
         # select project to open
-        selected="$(find "$PROJECTS" -mindepth 1 -maxdepth 1 -type d |\
+        selected="$(find -H "$PROJECTS" -mindepth 1 -maxdepth 1 -type d |\
             awk -F'/' '{print $NF}' | ${pkgs.fzf}/bin/fzf)"
         PROJECT_DIR="$PROJECTS/$selected"
 
