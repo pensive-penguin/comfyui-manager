@@ -131,9 +131,16 @@ PluginComponent {
         root.roots = data.projectRoots || [];
         publish("projects", root.projects);
         publish("roots", root.roots);
+        const ids = root.projects.map(project => project.id);
+        if (root.selectedProjectId && ids.indexOf(root.selectedProjectId) < 0) {
+            // Project IDs embed the canonical root. Drop a stale selection so a
+            // later start does not send an ID that no longer exists.
+            root.selectedProjectId = "";
+            publish("selectedProjectId", "");
+        }
         if (!root.selectedProjectId) {
             const current = data.currentProjectId || "";
-            if (current.length > 0)
+            if (current.length > 0 && ids.indexOf(current) >= 0)
                 setSelected(current);
             else if (root.projects.length > 0)
                 setSelected(root.projects[0].id);

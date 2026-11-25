@@ -28,7 +28,7 @@ def comfy-home [] {
 }
 
 def projects-dir [] {
-    (comfy-home) | path join "projects"
+    ((comfy-home) | path join "projects") | path expand
 }
 
 # Project roots come from COMFY_PROJECTS as a colon-separated list. An empty
@@ -232,11 +232,23 @@ def resolve-project [name: string] {
     $matches | get 0
 }
 
+def normalize-project-id [id: string] {
+    let parts = ($id | split row "::")
+    if (($parts | length) < 2) {
+        $id
+    } else {
+        let root = (($parts | first) | path expand | into string)
+        let name = ($parts | skip 1 | str join "::")
+        $"($root)::($name)"
+    }
+}
+
 def resolve-project-id [id: string] {
     if ($id | is-empty) {
         error make { msg: "project id is required" }
     }
-    let matches = (project-entries | where { |entry| $entry.id == $id })
+    let normalized = (normalize-project-id $id)
+    let matches = (project-entries | where { |entry| $entry.id == $normalized })
     if ($matches | is-empty) {
         error make { msg: $"unknown project id: ($id)" }
     }
