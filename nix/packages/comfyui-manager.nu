@@ -28,13 +28,22 @@ def comfy-home [] {
 }
 
 def projects-dir [] {
+    (comfy-home) | path join "projects"
+}
+
+# Project roots come from COMFY_PROJECTS as a colon-separated list. An empty
+# value keeps the historical single root under COMFY_HOME.
+def project-roots [] {
     let configured = ($env.COMFY_PROJECTS? | default "")
-    let dir = if ($configured | is-empty) {
-        (comfy-home) | path join "projects"
+    let roots = if ($configured | is-empty) {
+        [ (projects-dir) ]
     } else {
         $configured
+        | split row ":"
+        | where { |entry| $entry != "" }
+        | each { |entry| $entry | path expand }
     }
-    $dir | path expand
+    $roots | uniq
 }
 
 def state-base [] {
@@ -175,27 +184,32 @@ def release-lock [] {
 # Projects
 # ---------------------------------------------------------------------------
 
-def project-names [] {
-    let dir = (projects-dir)
-    if not ($dir | path exists) {
-        []
-    } else {
-        ^find -H $dir -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
-        | lines
-        | where { |line| $line != "" and not ($line | str starts-with ".") }
-        | sort
+def project-info [root: string, name: string] {
+    let path = ($root | path join $name)
+    {
+        id: $"($root)::($name)",
+        name: $name,
+        root: $root,
+        path: ($path | into string),
+        hasInput: ((($path | path join "input") | path exists)),
+        hasOutput: ((($path | path join "output") | path exists)),
+        hasWorkflows: ((($path | path join "workflows") | path exists))
     }
 }
 
-def project-info [name: string] {
-    let dir = ((projects-dir) | path join $name)
-    {
-        name: $name,
-        path: ($dir | into string),
-        hasInput: ((($dir | path join "input") | path exists)),
-        hasOutput: ((($dir | path join "output") | path exists)),
-        hasWorkflows: ((($dir | path join "workflows") | path exists))
-    }
+def project-entries [] {
+    project-roots | each { |root|
+        let dir = ($root | into string)
+        if not ($dir | path exists) {
+            []
+        } else {
+            ^find -H $dir -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+            | lines
+            | where { |line| $line != "" and not ($line | str starts-with ".") }
+            | sort
+            | each { |name| project-info $dir $name }
+        }
+    } | flatten
 }
 
 def resolve-project [name: string] {
@@ -205,22 +219,66 @@ def resolve-project [name: string] {
     if ($name | str contains "/") or ($name == ".") or ($name == "..") {
         error make { msg: $"invalid project name: ($name)" }
     }
-    let names = (project-names)
-    if not ($names | any { |candidate| $candidate == $name }) {
+    let matches = (project-entries | where { |entry| $entry.name == $name })
+    if ($matches | is-empty) {
         error make { msg: $"unknown project: ($name)" }
     }
-    $name
+    if ($matches | length) > 1 {
+        let ids = ($matches | get id | str join ", ")
+        error make {
+            msg: $"project name '($name)' is ambiguous; use one of: ($ids)"
+        }
+    }
+    $matches | get 0
+}
+
+def resolve-project-id [id: string] {
+    if ($id | is-empty) {
+        error make { msg: "project id is required" }
+    }
+    let matches = (project-entries | where { |entry| $entry.id == $id })
+    if ($matches | is-empty) {
+        error make { msg: $"unknown project id: ($id)" }
+    }
+    $matches | get 0
+}
+
+def resolve-selection [project: any, project_id: any] {
+    let has_name = not (($project | default "") | is-empty)
+    let has_id = not (($project_id | default "") | is-empty)
+    if $has_name and $has_id {
+        error make { msg: "use either --project or --project-id, not both" }
+    }
+    if not $has_name and not $has_id {
+        error make { msg: "one of --project or --project-id is required" }
+    }
+    if $has_id {
+        resolve-project-id $project_id
+    } else {
+        resolve-project $project
+    }
+}
+
+def project-label [entry: record] {
+    $"($entry.name) — ($entry.root)"
 }
 
 def select-project [] {
-    let candidates = (project-names)
-    if ($candidates | is-empty) {
+    let entries = (project-entries)
+    if ($entries | is-empty) {
         error make {
-            msg: $"No projects found in (projects-dir). Run `comfyui-manager create` first."
+            msg: $"No projects found in (project-roots | str join ':'). Run `comfyui-manager create` first."
         }
     }
+    let choices = ($entries | each { |entry|
+        {
+            label: (project-label $entry),
+            entry: $entry
+        }
+    })
     let selected = (
-        $candidates
+        $choices
+        | get label
         | str join "\n"
         | ^fzf --select-1 --exit-0 --prompt "ComfyUI project> "
         | str trim
@@ -228,7 +286,11 @@ def select-project [] {
     if ($selected | is-empty) {
         error make { msg: "No project selected." }
     }
-    $selected
+    let match = ($choices | where { |choice| $choice.label == $selected })
+    if ($match | is-empty) {
+        error make { msg: "No project selected." }
+    }
+    $match | get 0 | get entry
 }
 
 # ---------------------------------------------------------------------------
@@ -433,9 +495,9 @@ def run-comfy [port: int, input: string, output: string] {
     }
 }
 
-def run-with-project [project: string, port: int, --stateful] {
+def run-with-project [project: record, port: int, --stateful] {
     let home = (comfy-home)
-    let project_dir = ((projects-dir) | path join $project)
+    let project_dir = ($project.path | into string)
     let workflows_dir = ($home | path join "user" "default" "workflows")
     let project_workflows = ($project_dir | path join "workflows")
     let project_input = ($project_dir | path join "input")
@@ -446,13 +508,16 @@ def run-with-project [project: string, port: int, --stateful] {
 
     let swap = (swap-workflow ($workflows_dir | into string) ($project_workflows | into string))
     if $stateful {
+        let started = (now)
         update-state {
             phase: "running",
             swap: $swap,
-            project: $project,
+            project: $project.name,
+            projectId: $project.id,
+            projectRoot: $project.root,
             port: $port,
-            startedAt: (now),
-            updatedAt: (now)
+            startedAt: $started,
+            updatedAt: $started
         }
     }
 
@@ -499,47 +564,52 @@ def cleanup-state [] {
     }
 }
 
-def do-start [project: string, port: any] {
-    let selected = (resolve-project $project)
-
+def do-start [project: record, port: any, base_port: int] {
     if (unit-active) {
         let current = (read-state)
+        let current_id = ($current | get -o projectId)
         let current_project = ($current | get -o project)
-        if $current_project == $selected {
+        let same_project = ($current_id == $project.id) or (($current_id == null) and ($current_project == $project.name))
+        if $same_project {
             let current_port = ($current | get -o port)
             let current_phase = if (health-ok) { "running" } else { "starting" }
             return {
                 ok: true,
                 phase: $current_phase,
-                project: $selected,
+                project: $project.name,
+                projectId: $project.id,
+                projectRoot: $project.root,
                 port: $current_port,
                 url: (if $current_port == null { null } else { $"http://127.0.0.1:($current_port)/" }),
                 alreadyRunning: true
             }
         }
         error make {
-            msg: $"ComfyUI is already running project '($current_project)'. Use `comfyui-manager switch --project ($selected)`."
+            msg: $"ComfyUI is already running project '($current_project)'. Use `comfyui-manager switch --project-id ($project.id)`."
         }
     }
 
     cleanup-state
 
-    let chosen_port = if $port == null { free-port 8188 } else { $port }
+    let chosen_port = if $port == null { free-port $base_port } else { $port }
     if (($port != null) and (port-busy $chosen_port)) {
         error make { msg: $"port ($chosen_port) is already in use" }
     }
 
     let home = (comfy-home)
-    let projects = (projects-dir)
+    let project_roots = (project-roots | str join ":")
     let state_base_dir = (state-base)
     let started = (now)
     write-state {
         phase: "starting",
-        project: $selected,
+        project: $project.name,
+        projectId: $project.id,
+        projectRoot: $project.root,
         port: $chosen_port,
+        basePort: $base_port,
         url: $"http://127.0.0.1:($chosen_port)/",
         home: $home,
-        projectsDir: $projects,
+        projectRoots: (project-roots),
         startedAt: $started,
         startedEpoch: (epoch-now),
         updatedAt: $started,
@@ -560,7 +630,7 @@ def do-start [project: string, port: any] {
         $"--setenv=HOME=($env.HOME)"
         $"--setenv=XDG_STATE_HOME=($state_base_dir)"
         $"--setenv=COMFY_HOME=($home)"
-        $"--setenv=COMFY_PROJECTS=($projects)"
+        $"--setenv=COMFY_PROJECTS=($project_roots)"
     ]
 
     let extra = ($env.COMFYUI_MANAGER_EXTRA_ARGS? | default "")
@@ -571,7 +641,7 @@ def do-start [project: string, port: any] {
     if not ($fake_command | is-empty) {
         $args = ($args | append $"--setenv=COMFYUI_MANAGER_COMFY_CMD=($fake_command)")
     }
-    $args = ($args ++ [$self "_run" "--project" $selected "--port" ($chosen_port | into string)])
+    $args = ($args ++ [$self "_run" "--project-id" $project.id "--port" ($chosen_port | into string)])
 
     let result = (^systemd-run ...$args | complete)
     if $result.exit_code != 0 {
@@ -584,10 +654,36 @@ def do-start [project: string, port: any] {
         error make { msg: $message }
     }
 
+    # systemd-run returns before the unit has necessarily entered the active
+    # state. Give it a short window so an immediate ExecStart failure is
+    # reported instead of looking like a long startup.
+    mut active = (unit-active)
+    mut tries = 0
+    loop {
+        if $active or $tries >= 8 {
+            break
+        }
+        sleep 250ms
+        $active = (unit-active)
+        $tries += 1
+    }
+    if not $active {
+        let tail = (log-lines 20)
+        let message = if ($tail | is-empty) {
+            "ComfyUI failed to start"
+        } else {
+            $tail | last
+        }
+        update-state { phase: "failed", error: $message, updatedAt: (now) }
+        error make { msg: $message }
+    }
+
     {
         ok: true,
         phase: "starting",
-        project: $selected,
+        project: $project.name,
+        projectId: $project.id,
+        projectRoot: $project.root,
         port: $chosen_port,
         url: $"http://127.0.0.1:($chosen_port)/",
         unit: (unit-name)
@@ -624,6 +720,8 @@ def do-stop [] {
         ok: true,
         phase: "stopped",
         project: $project,
+        projectId: ($current | get -o projectId),
+        projectRoot: ($current | get -o projectRoot),
         port: $port
     }
 }
@@ -669,6 +767,8 @@ def do-status [] {
         running: ($phase == "running"),
         ready: ($phase == "running"),
         project: $project,
+        projectId: ($current | get -o projectId),
+        projectRoot: ($current | get -o projectRoot),
         port: $port,
         url: (if $port == null { null } else { $"http://127.0.0.1:($port)/" }),
         pid: (if $pid > 0 { $pid } else { null }),
@@ -679,7 +779,8 @@ def do-status [] {
         error: $error,
         exitCode: ($current | get -o exitCode),
         home: (comfy-home),
-        projectsDir: (projects-dir),
+        projectRoots: (project-roots),
+        projectsDir: (project-roots | get 0),
         logTail: (if $phase == "failed" { log-lines 20 } else { [] })
     }
 }
@@ -699,20 +800,35 @@ def "main list" [--home: path, --json] {
         $env.COMFY_HOME = $home
     }
     try {
-        let current = ((read-state) | get -o project)
+        let state = (read-state)
+        let current_id = ($state | get -o projectId)
+        let current_name = ($state | get -o project)
+        let entries = (project-entries)
+        let current_name_count = if $current_name == null { 0 } else {
+            $entries | where { |entry| $entry.name == $current_name } | length
+        }
         let projects = (
-            project-names
-            | each { |name|
-                let info = (project-info $name)
-                $info | merge { isCurrent: ($name == $current) }
+            $entries
+            | each { |entry|
+                let is_current = if $current_id != null {
+                    $entry.id == $current_id
+                } else {
+                    ($current_name_count == 1) and ($entry.name == $current_name)
+                }
+                $entry | merge { isCurrent: $is_current }
             }
+        )
+        let roots = (
+            project-roots
+            | each { |root| { path: ($root | into string), exists: ($root | path exists) } }
         )
         let result = {
             ok: true,
             home: (comfy-home),
-            projectsDir: (projects-dir),
-            projectsDirExists: ((projects-dir) | path exists),
-            currentProject: $current,
+            projectRoots: $roots,
+            projectsDir: (project-roots | get 0),
+            currentProject: $current_name,
+            currentProjectId: $current_id,
             projects: $projects
         }
         if $json {
@@ -720,7 +836,8 @@ def "main list" [--home: path, --json] {
         } else {
             for project in $projects {
                 let marker = if $project.isCurrent { "*" } else { " " }
-                print $"($marker) ($project.name)"
+                let label = (project-label $project)
+                print $"($marker) ($label)"
             }
         }
     } catch { |err|
@@ -755,17 +872,15 @@ def "main status" [--home: path, --json] {
 }
 
 # Start ComfyUI with a project in the background.
-def "main start" [--project: string, --port: int, --home: path, --json] {
+def "main start" [--project: string, --project-id: string, --port: int, --base-port: int = 8188, --home: path, --json] {
     if $home != null {
         $env.COMFY_HOME = $home
     }
     try {
-        if ($project | is-empty) {
-            error make { msg: "--project is required" }
-        }
+        let selected = (resolve-selection $project $project_id)
         acquire-lock
         try {
-            let result = (do-start $project $port)
+            let result = (do-start $selected $port $base_port)
             if $json {
                 json-out $result
             } else if ($result | get -o alreadyRunning) == true {
@@ -811,15 +926,23 @@ def "main restart" [--home: path, --json] {
         acquire-lock
         try {
             let current = (read-state)
-            let project = ($current | get -o project)
-            if $project == null {
+            let project_id = ($current | get -o projectId)
+            let project_name = ($current | get -o project)
+            if $project_id == null and $project_name == null {
                 error make { msg: "no project has been started yet" }
             }
+            let selected = if $project_id != null {
+                resolve-project-id $project_id
+            } else {
+                resolve-project $project_name
+            }
             let port = ($current | get -o port)
+            let base_port_value = ($current | get -o basePort)
+            let base_port = if $base_port_value == null { 8188 } else { $base_port_value }
             let _stopped = (do-stop)
-            let result = (do-start $project $port)
+            let result = (do-start $selected $port $base_port)
             if $json {
-                json-out ($result | merge { previousProject: $project })
+                json-out ($result | merge { previousProject: $selected.name })
             } else {
                 print $"Restarted ($result.project) on ($result.url)"
             }
@@ -832,20 +955,17 @@ def "main restart" [--home: path, --json] {
 }
 
 # Stop the current project, then start the selected one.
-def "main switch" [--project: string, --home: path, --json] {
+def "main switch" [--project: string, --project-id: string, --base-port: int = 8188, --home: path, --json] {
     if $home != null {
         $env.COMFY_HOME = $home
     }
     try {
-        if ($project | is-empty) {
-            error make { msg: "--project is required" }
-        }
+        let selected = (resolve-selection $project $project_id)
         acquire-lock
         try {
-            let selected = (resolve-project $project)
             let previous = ((read-state) | get -o project)
             let _stopped = (do-stop)
-            let result = (do-start $selected null)
+            let result = (do-start $selected null $base_port)
             if $json {
                 json-out ($result | merge { previousProject: $previous })
             } else {
@@ -943,15 +1063,21 @@ def "main repair" [--home: path, --json] {
 }
 
 # Run ComfyUI with one of the projects in the foreground.
-def "main run" [--project: string, --port: int, --home: path] {
+def "main run" [--project: string, --project-id: string, --port: int, --base-port: int = 8188, --home: path] {
     if $home != null {
         $env.COMFY_HOME = $home
     }
     if (unit-active) {
         error make { msg: "ComfyUI is already running in the background; stop it first" }
     }
-    let selected = if $project == null { select-project } else { resolve-project $project }
-    let chosen_port = if $port == null { free-port 8188 } else { $port }
+    let has_name = not (($project | default "") | is-empty)
+    let has_id = not (($project_id | default "") | is-empty)
+    let selected = if not $has_name and not $has_id {
+        select-project
+    } else {
+        resolve-selection $project $project_id
+    }
+    let chosen_port = if $port == null { free-port $base_port } else { $port }
     if (($port != null) and (port-busy $chosen_port)) {
         error make { msg: $"port ($chosen_port) is already in use" }
     }
@@ -960,11 +1086,12 @@ def "main run" [--project: string, --port: int, --home: path] {
 }
 
 # Internal entrypoint used by the systemd unit.
-def "main _run" [--project: string, --port: int] {
+def "main _run" [--project-id: string, --port: int] {
     try {
-        if ($project | is-empty) or ($port == null) {
-            error make { msg: "_run requires --project and --port" }
+        if ($project_id | is-empty) or ($port == null) {
+            error make { msg: "_run requires --project-id and --port" }
         }
+        let project = (resolve-project-id $project_id)
         let code = (run-with-project $project $port --stateful)
         exit $code
     } catch { |err|

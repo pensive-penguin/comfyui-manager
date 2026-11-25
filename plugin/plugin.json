@@ -1,0 +1,17 @@
+{
+    "id": "comfyuiManager",
+    "name": "ComfyUI",
+    "description": "Start, stop, and switch ComfyUI projects",
+    "version": "0.1.0",
+    "author": "pensive-penguin",
+    "type": "composite",
+    "capabilities": ["daemon", "dankbar-widget"],
+    "icon": "local_fire_department",
+    "components": {
+        "daemon": "./ComfyDaemon.qml",
+        "widget": "./ComfyWidget.qml"
+    },
+    "settings": "./ComfySettings.qml",
+    "requires_dms": ">=2.0.0",
+    "permissions": ["settings_read", "settings_write"]
+}

@@ -135,6 +135,41 @@
             else userGroup
         )
       else "root";
+
+    dmsUser =
+      if cfg.dmsPlugin.user != null
+      then cfg.dmsPlugin.user
+      else cfg.user;
+
+    dmsUserHome =
+      if dmsUser != null && builtins.hasAttr dmsUser config.users.users
+      then config.users.users.${dmsUser}.home
+      else null;
+
+    dmsConfigDir =
+      if cfg.dmsPlugin.configDir != null
+      then cfg.dmsPlugin.configDir
+      else if dmsUserHome != null
+      then "${dmsUserHome}/.config/dms"
+      else null;
+
+    dmsOwner =
+      if dmsUser != null
+      then dmsUser
+      else "root";
+
+    dmsGroup =
+      if dmsUser != null && builtins.hasAttr dmsUser config.users.users
+      then
+        (
+          let
+            userGroup = config.users.users.${dmsUser}.group;
+          in
+            if userGroup == ""
+            then "users"
+            else userGroup
+        )
+      else "root";
   in {
     imports = [inputs.comfyui-nix.nixosModules.default];
 
@@ -234,6 +269,47 @@
           not the service is enabled.
         '';
       };
+
+      dmsPlugin = mkOption {
+        type = types.submodule {
+          options = {
+            enable = mkEnableOption "the ComfyUI plugin for DankMaterialShell";
+
+            user = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = ''
+                User whose DMS configuration should receive the plugin. Defaults
+                to {option}`programs.comfyui-manager.user`.
+              '';
+            };
+
+            package = mkOption {
+              type = types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.comfyui-manager-plugin;
+              defaultText = literalExpression ''
+                comfyui-manager.packages.''${system}.comfyui-manager-plugin
+              '';
+              description = "The DMS plugin package to link into the user's DMS configuration.";
+            };
+
+            configDir = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = "/home/alice/.config/dms";
+              description = ''
+                DMS configuration directory. Defaults to
+                `<user home>/.config/dms` when the selected user is known.
+              '';
+            };
+          };
+        };
+        default = {};
+        description = ''
+          Install the DMS plugin declaratively by linking it into the selected
+          user's `dms/plugins` directory.
+        '';
+      };
     };
 
     config = lib.mkIf cfg.enable {
@@ -242,6 +318,14 @@
           assertion = cfg.user == null || builtins.hasAttr cfg.user config.users.users;
           message = "programs.comfyui-manager.user refers to a user that is not defined.";
         }
+        {
+          assertion = !cfg.dmsPlugin.enable || dmsUser != null;
+          message = "programs.comfyui-manager.dmsPlugin.enable requires dmsPlugin.user or programs.comfyui-manager.user.";
+        }
+        {
+          assertion = !cfg.dmsPlugin.enable || dmsConfigDir != null;
+          message = "programs.comfyui-manager.dmsPlugin.enable requires a known DMS config directory.";
+        }
       ];
 
       environment.systemPackages = [cfg.package];
@@ -249,15 +333,21 @@
       services.comfyui.customNodes = resolvedModules;
       services.comfyui.enable = lib.mkIf cfg.enableService true;
 
-      systemd.tmpfiles.rules = lib.optionals (installDir != null) (
-        [
-          "d ${installDir}/custom_nodes 0755 ${owner} ${group} -"
-        ]
-        ++ lib.mapAttrsToList (
-          name: source: "L+ ${installDir}/custom_nodes/${name} - - - - ${source}"
+      systemd.tmpfiles.rules =
+        lib.optionals (installDir != null) (
+          [
+            "d ${installDir}/custom_nodes 0755 ${owner} ${group} -"
+          ]
+          ++ lib.mapAttrsToList (
+            name: source: "L+ ${installDir}/custom_nodes/${name} - - - - ${source}"
+          )
+          resolvedModules
         )
-        resolvedModules
-      );
+        ++ lib.optionals (cfg.dmsPlugin.enable && dmsConfigDir != null) [
+          "d ${dmsConfigDir} 0755 ${dmsOwner} ${dmsGroup} -"
+          "d ${dmsConfigDir}/plugins 0755 ${dmsOwner} ${dmsGroup} -"
+          "L+ ${dmsConfigDir}/plugins/comfyuiManager - - - - ${cfg.dmsPlugin.package}/share/dms/plugins/comfyuiManager"
+        ];
     };
   };
 
