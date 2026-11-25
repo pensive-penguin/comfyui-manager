@@ -100,8 +100,35 @@
           Built-in modules: ${lib.concatStringsSep ", " (builtins.attrNames builtinModules)}
         '';
 
-    enabledModules = lib.filterAttrs (_: module: module.enable) cfg.modules;
+    # Third-party nodes that the comfyui-nix package links into
+    # custom_nodes/ by default. Setting modules.<name>.enable = false for one
+    # of these turns the bundled link off instead of trying to install it.
+    bundledNodeDirs = [
+      "ComfyUI-Impact-Pack"
+      "rgthree-comfy"
+      "ComfyUI-KJNodes"
+      "ComfyUI-GGUF"
+      "ComfyUI-LTXVideo"
+      "ComfyUI-Florence2"
+      "ComfyUI_bitsandbytes_NF4"
+      "x-flux-comfyui"
+      "ComfyUI-MMAudio"
+      "PuLID_ComfyUI"
+      "ComfyUI-WanVideoWrapper"
+    ];
+
+    enabledModules = lib.filterAttrs (
+      name: module: module.enable && !(builtins.elem name bundledNodeDirs)
+    ) cfg.modules;
     resolvedModules = lib.mapAttrs resolveModule enabledModules;
+
+    disabledBundledNodes =
+      builtins.filter (
+        name: builtins.hasAttr name cfg.modules && !cfg.modules.${name}.enable
+      )
+      bundledNodeDirs;
+
+    disabledBundledNodesEnv = lib.concatStringsSep " " disabledBundledNodes;
 
     userHome =
       if cfg.user != null && builtins.hasAttr cfg.user config.users.users
@@ -195,6 +222,17 @@
           {option}`programs.comfyui-manager.modules.<name>.fetchGit`, or neither to
           select a built-in module by name. Set `enable = false` to disable an
           entry without removing it.
+
+          The third-party nodes bundled by comfyui-nix can be turned off the
+          same way. Recognised names: `ComfyUI-Impact-Pack`, `rgthree-comfy`,
+          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-LTXVideo`,
+          `ComfyUI-Florence2`, `ComfyUI_bitsandbytes_NF4`, `x-flux-comfyui`,
+          `ComfyUI-MMAudio`, `PuLID_ComfyUI` and `ComfyUI-WanVideoWrapper`.
+
+          Bundled nodes are linked by the comfyui-nix launcher, so this applies
+          to processes started by `comfyui-manager` (including the DMS plugin).
+          For the `services.comfyui` service, use its own
+          `services.comfyui.bundledCustomNodes` option instead.
         '';
         example = literalExpression ''
           {
@@ -329,6 +367,10 @@
       ];
 
       environment.systemPackages = [cfg.package];
+
+      environment.variables = lib.optionalAttrs (disabledBundledNodes != []) {
+        COMFYUI_DISABLED_BUNDLED_NODES = lib.mkDefault disabledBundledNodesEnv;
+      };
 
       services.comfyui.customNodes = resolvedModules;
       services.comfyui.enable = lib.mkIf cfg.enableService true;

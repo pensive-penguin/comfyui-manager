@@ -653,6 +653,10 @@ def do-start [project: record, port: any, base_port: int] {
     if not ($fake_command | is-empty) {
         $args = ($args | append $"--setenv=COMFYUI_MANAGER_COMFY_CMD=($fake_command)")
     }
+    let disabled_bundled = ($env.COMFYUI_DISABLED_BUNDLED_NODES? | default "")
+    if not ($disabled_bundled | is-empty) {
+        $args = ($args | append $"--setenv=COMFYUI_DISABLED_BUNDLED_NODES=($disabled_bundled)")
+    }
     $args = ($args ++ [$self "_run" "--project-id" $project.id "--port" ($chosen_port | into string)])
 
     let result = (^systemd-run ...$args | complete)

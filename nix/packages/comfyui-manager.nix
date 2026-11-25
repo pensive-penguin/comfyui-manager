@@ -13,6 +13,40 @@
       inputs.comfyui-nix.packages.${system}.cuda
       or inputs.comfyui-nix.packages.${system}.default;
 
+    # comfyui-nix links its bundled third-party nodes unconditionally. This
+    # wrapper keeps that behaviour, but lets `COMFYUI_DISABLED_BUNDLED_NODES`
+    # (space-separated directory names) opt individual bundled nodes out at
+    # launch time without touching the rest of the bundle. It keeps the
+    # original passthru so it can also stand in as services.comfyui.package.
+    comfyuiPatched = pkgs.runCommandLocal "comfy-ui-bundled-filter" {
+      passthru = comfyui.passthru;
+    } ''
+      mkdir -p $out/bin
+      {
+        head -n 1 ${comfyui}/bin/comfy-ui
+        cat <<'BUNDLED_FILTER'
+link_bundled() {
+  local src="$1" dest="$2" name disabled
+  name="$(basename "$dest")"
+  for disabled in ''${COMFYUI_DISABLED_BUNDLED_NODES:-}; do
+    if [ "$name" = "$disabled" ]; then
+      rm -f "$dest"
+      return 0
+    fi
+  done
+  ln -sfn "$src" "$dest"
+}
+BUNDLED_FILTER
+        tail -n +2 ${comfyui}/bin/comfy-ui
+      } > $out/bin/comfy-ui
+      sed -i -E 's#^([[:space:]]*)ln -sfn ("[^"]*" "\$BASE_DIR/custom_nodes/[^"]*")#\1link_bundled \2#' $out/bin/comfy-ui
+      # Fail loudly if upstream changes the launcher shape and the rewrite
+      # silently no longer applies.
+      grep -q 'link_bundled "/nix/store' $out/bin/comfy-ui
+      chmod +x $out/bin/comfy-ui
+      ln -s $out/bin/comfy-ui $out/bin/comfyui
+    '';
+
     runtimeDeps = [
       pkgs.coreutils
       pkgs.curl
@@ -25,7 +59,7 @@
       pkgs.util-linux
       pkgs.xdg-utils
       (pkgs.python3.withPackages (ps: [ps.natsort]))
-      comfyui
+      comfyuiPatched
     ];
 
     # Install the nushell script under its final name so nushell's generated
@@ -46,6 +80,9 @@
           exec ${nuScript}/bin/comfyui-manager "$@"
         '';
       }).overrideAttrs (old: {
+        passthru = (old.passthru or {}) // {
+          comfyui = comfyuiPatched;
+        };
         meta =
           (old.meta or {})
           // {
