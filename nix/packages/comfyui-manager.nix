@@ -21,6 +21,8 @@
       pkgs.glib
       pkgs.lsof
       pkgs.nushell
+      pkgs.systemd
+      pkgs.util-linux
       pkgs.xdg-utils
       (pkgs.python3.withPackages (ps: [ps.natsort]))
       comfyui
@@ -40,6 +42,7 @@
         name = "comfyui-manager";
         runtimeInputs = runtimeDeps;
         text = ''
+          export COMFYUI_MANAGER_BIN="${placeholder "out"}/bin/comfyui-manager"
           exec ${nuScript}/bin/comfyui-manager "$@"
         '';
       }).overrideAttrs (old: {
