@@ -26,6 +26,8 @@ Built-in, pinned sources are available for:
 - `rgthree-comfy`
 - `ComfyUI-KJNodes`
 - `ComfyUI-GGUF`
+- `ComfyUI-Lora-Manager`
+- `ComfyUI-Impact-Subpack`
 
 Enable them with empty attribute sets, or disable one with `enable = false`:
 
@@ -38,6 +40,8 @@ programs.comfyui-manager = {
     "rgthree-comfy" = {};
     "ComfyUI-KJNodes" = {};
     "ComfyUI-GGUF" = {};
+    "ComfyUI-Lora-Manager" = {};
+    "ComfyUI-Impact-Subpack" = {};
   };
 };
 ```

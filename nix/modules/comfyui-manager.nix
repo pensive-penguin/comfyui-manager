@@ -104,6 +104,20 @@
         rev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a";
         hash = "sha256-/ZwecgxTTMo9J1whdEJci8lEkOy/yP+UmjbpOAA3BvU=";
       };
+
+      "ComfyUI-Lora-Manager" = pkgs.fetchFromGitHub {
+        owner = "willmiao";
+        repo = "ComfyUI-Lora-Manager";
+        rev = "21dc58fec2aab4e41deb549058253b71afa5573c"; # v1.3.0
+        hash = "sha256-Lk10gZbYlD2XXzoccmBCcIBgzXAqFLArhmIZqHGInpc=";
+      };
+
+      "ComfyUI-Impact-Subpack" = pkgs.fetchFromGitHub {
+        owner = "ltdrdata";
+        repo = "ComfyUI-Impact-Subpack";
+        rev = "31b729aaa8d5e5c183e2d5b942064a204eec2d34"; # 1.3.6
+        hash = "sha256-/px05e4JcvhVe2DGC+6UqjbHxoA/IvB55gjKXmsDZa4=";
+      };
     };
 
     resolveModule = name: module:
@@ -225,11 +239,12 @@
           entry without removing it.
 
           The previously bundled nodes (`ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes` and `ComfyUI-GGUF`) are available as built-ins, so they
-          can be enabled or disabled by name just like any other module. All
-          custom nodes are linked into the shared base directory with
-          systemd-tmpfiles; they apply to the CLI, the DMS plugin and the
-          optional `services.comfyui` service alike.
+          `ComfyUI-KJNodes` and `ComfyUI-GGUF`), plus `ComfyUI-Lora-Manager` and
+          `ComfyUI-Impact-Subpack`, are available as built-ins, so they can be
+          enabled or disabled by name just like any other module. All custom
+          nodes are linked into the shared base directory with systemd-tmpfiles;
+          they apply to the CLI, the DMS plugin and the optional
+          `services.comfyui` service alike.
         '';
         example = literalExpression ''
           {
@@ -254,7 +269,8 @@
           Modules that can be selected by name in
           {option}`programs.comfyui-manager.modules` without providing a source.
           These are `ComfyUI-Anima-LLLite`, `ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes` and `ComfyUI-GGUF`.
+          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-Lora-Manager` and
+          `ComfyUI-Impact-Subpack`.
         '';
       };
 

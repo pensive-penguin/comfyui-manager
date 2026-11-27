@@ -70,6 +70,23 @@
         gguf
         sentencepiece
         protobuf
+
+        # ComfyUI-Lora-Manager
+        aiohttp
+        aiohttp-socks
+        jinja2
+        safetensors
+        olefile
+        toml
+        gitpython
+        aiosqlite
+        beautifulsoup4
+        platformdirs
+        pyyaml
+        brotli
+
+        # ComfyUI-Impact-Subpack
+        ultralytics
       ];
 
     comfyui = pkgs.comfyui.override {extraPackages = comfyuiExtraPackages;};
