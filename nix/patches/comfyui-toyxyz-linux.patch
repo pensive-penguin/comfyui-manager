@@ -1,0 +1,27 @@
+--- a/nodes/toyxyz_test_nodes.py
++++ b/nodes/toyxyz_test_nodes.py
+@@ -12,13 +12,9 @@
+ from nodes import MAX_RESOLUTION, SaveImage, common_ksampler
+ 
+ import mss #Screen Capture
+-import win32gui
+-import win32ui
+-import win32con
+-import win32api
+-from win32gui import FindWindow, GetWindowRect #Get window size and location
+ import ctypes #for Find window
+-from ctypes import windll, wintypes
++# Windows-only pywin32/windll imports are removed in the Nix Linux build.
++# They are only used by window/screen-capture helpers; see nix/patches/comfyui-toyxyz-linux.patch.
+ 
+ import trimesh
+ 
+@@ -370,7 +366,7 @@
+         self.webcam_index = 0
+ 
+     def load_image(self, select_webcam):
+-        capture = cv2.VideoCapture(select_webcam, cv2.CAP_DSHOW)
++        capture = cv2.VideoCapture(select_webcam)
+ 
+         try:
+             # should be instantly opened

@@ -118,6 +118,38 @@
         rev = "31b729aaa8d5e5c183e2d5b942064a204eec2d34"; # 1.3.6
         hash = "sha256-/px05e4JcvhVe2DGC+6UqjbHxoA/IvB55gjKXmsDZa4=";
       };
+
+      # Upstream imports win32* / ctypes.windll unconditionally. This flake
+      # targets unix, where those imports cannot work and pywin32 is not
+      # available, so a sys.platform guard would be dead code. The patch drops
+      # the imports and switches CAP_DSHOW to a portable backend instead.
+      # Direct Screen Capture's window/window_crop modes remain unavailable.
+      "ComfyUI_toyxyz_test_nodes" = let
+        src = pkgs.fetchFromGitHub {
+          owner = "toyxyz";
+          repo = "ComfyUI_toyxyz_test_nodes";
+          rev = "8291d9b65d56d65be55ee0f31df073d42b7d0eb6";
+          hash = "sha256-vwmcIM7TjvJ4HAYsCPg/1qa52d+K+1P5DgWbDx4/1FI=";
+        };
+      in
+        pkgs.stdenv.mkDerivation {
+          pname = "comfyui-toyxyz-test-nodes";
+          version = "1.0.6";
+          inherit src;
+          patches = [ ../patches/comfyui-toyxyz-linux.patch ];
+          dontConfigure = true;
+          dontBuild = true;
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cp -R ./. $out/
+            runHook postInstall
+          '';
+          meta = {
+            description = "Toyxyz's frequently used ComfyUI custom nodes (Linux-patched)";
+            homepage = "https://github.com/toyxyz/ComfyUI_toyxyz_test_nodes";
+          };
+        };
     };
 
     resolveModule = name: module:
@@ -239,12 +271,16 @@
           entry without removing it.
 
           The previously bundled nodes (`ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes` and `ComfyUI-GGUF`), plus `ComfyUI-Lora-Manager` and
-          `ComfyUI-Impact-Subpack`, are available as built-ins, so they can be
-          enabled or disabled by name just like any other module. All custom
-          nodes are linked into the shared base directory with systemd-tmpfiles;
-          they apply to the CLI, the DMS plugin and the optional
-          `services.comfyui` service alike.
+          `ComfyUI-KJNodes` and `ComfyUI-GGUF`), plus `ComfyUI-Lora-Manager`,
+          `ComfyUI-Impact-Subpack` and `ComfyUI_toyxyz_test_nodes`, are available
+          as built-ins, so they can be enabled or disabled by name just like any
+          other module. `ComfyUI_toyxyz_test_nodes` carries a Linux patch: the
+          Windows-only `win32*` / `ctypes.windll` imports are removed and
+          `cv2.CAP_DSHOW` is replaced with a portable backend, so its
+          `Direct Screen Capture` node only supports the `Default` capture mode
+          here. All custom nodes are linked into the shared base directory with
+          systemd-tmpfiles; they apply to the CLI, the DMS plugin and the
+          optional `services.comfyui` service alike.
         '';
         example = literalExpression ''
           {
@@ -269,8 +305,10 @@
           Modules that can be selected by name in
           {option}`programs.comfyui-manager.modules` without providing a source.
           These are `ComfyUI-Anima-LLLite`, `ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-Lora-Manager` and
-          `ComfyUI-Impact-Subpack`.
+          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-Lora-Manager`,
+          `ComfyUI-Impact-Subpack` and `ComfyUI_toyxyz_test_nodes`. The latter is
+          patched for unix in `nix/patches/comfyui-toyxyz-linux.patch`; see the
+          `modules` option for the captured-node limitation.
         '';
       };
 

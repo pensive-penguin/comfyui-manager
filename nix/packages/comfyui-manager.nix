@@ -87,6 +87,16 @@
 
         # ComfyUI-Impact-Subpack
         ultralytics
+
+        # ComfyUI_toyxyz_test_nodes (Linux-patched)
+        av
+        einops
+        trimesh
+        rapidfuzz
+        torchaudio
+        huggingface-hub
+        imageio-ffmpeg
+        psutil
       ];
 
     comfyui = pkgs.comfyui.override {extraPackages = comfyuiExtraPackages;};

@@ -28,6 +28,7 @@ Built-in, pinned sources are available for:
 - `ComfyUI-GGUF`
 - `ComfyUI-Lora-Manager`
 - `ComfyUI-Impact-Subpack`
+- `ComfyUI_toyxyz_test_nodes` (Linux-patched)
 
 Enable them with empty attribute sets, or disable one with `enable = false`:
 
@@ -42,6 +43,7 @@ programs.comfyui-manager = {
     "ComfyUI-GGUF" = {};
     "ComfyUI-Lora-Manager" = {};
     "ComfyUI-Impact-Subpack" = {};
+    "ComfyUI_toyxyz_test_nodes" = {};
   };
 };
 ```
@@ -49,6 +51,16 @@ programs.comfyui-manager = {
 Their Python dependencies are included in ComfyUI's wrapped environment via
 `extraPackages`. `segment_anything` is built locally because nixpkgs does not
 package it.
+
+`ComfyUI_toyxyz_test_nodes` is patched for this unix/NixOS build in
+`nix/patches/comfyui-toyxyz-linux.patch`. Upstream imports `win32*` and
+`ctypes.windll`/`wintypes` at module load time, but `pywin32` is Windows-only
+and `sys.platform` is never `"win32"` here; those imports are removed rather
+than guarded. `cv2.CAP_DSHOW` is also replaced with the portable OpenCV
+backend. The pack and all its nodes load normally. `CaptureWebcam` works with
+the default camera backend, and `Direct Screen Capture` works in its `Default`
+mode; its `window` and `window_crop` modes remain unavailable because they need
+Windows window APIs.
 
 ## Migrating from comfyui-nix
 
