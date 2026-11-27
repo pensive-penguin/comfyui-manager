@@ -1,4 +1,4 @@
-{inputs, self, ...}: {
+{self, ...}: {
   flake.nixosModules.comfyui-manager = {
     config,
     lib,
@@ -74,6 +74,36 @@
         rev = "b7495bd8eb876e334509976896702484ed19cdbb";
         hash = "sha256-g6mrJiium79O9+mQUaLCJ6z0IkGnu3G+jBfaMrBkao8=";
       };
+
+      # Previously bundled third-party nodes, pinned here so workflows keep
+      # working with the nixpkgs comfyui package.
+      "ComfyUI-Impact-Pack" = pkgs.fetchFromGitHub {
+        owner = "ltdrdata";
+        repo = "ComfyUI-Impact-Pack";
+        rev = "8.28";
+        hash = "sha256-V/gMPqo9Xx21+KpG5LPzP5bML9nGlHHMyVGoV+YgFWE=";
+      };
+
+      "rgthree-comfy" = pkgs.fetchFromGitHub {
+        owner = "rgthree";
+        repo = "rgthree-comfy";
+        rev = "2c5342a8cb0eaecaabf61435a5f37dd594c510ba";
+        hash = "sha256-Z3yKY+6VW5wfsOkI+LrNFd3oZMXKVITtinsNXVXFNec=";
+      };
+
+      "ComfyUI-KJNodes" = pkgs.fetchFromGitHub {
+        owner = "kijai";
+        repo = "ComfyUI-KJNodes";
+        rev = "c9869eade9920a1b949de07c4a197156006bcceb";
+        hash = "sha256-8jhXmMmIdf99bkxZjPXcorPUIpEPEIjFthSTwJUVj+Y=";
+      };
+
+      "ComfyUI-GGUF" = pkgs.fetchFromGitHub {
+        owner = "city96";
+        repo = "ComfyUI-GGUF";
+        rev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a";
+        hash = "sha256-/ZwecgxTTMo9J1whdEJci8lEkOy/yP+UmjbpOAA3BvU=";
+      };
     };
 
     resolveModule = name: module:
@@ -100,35 +130,8 @@
           Built-in modules: ${lib.concatStringsSep ", " (builtins.attrNames builtinModules)}
         '';
 
-    # Third-party nodes that the comfyui-nix package links into
-    # custom_nodes/ by default. Setting modules.<name>.enable = false for one
-    # of these turns the bundled link off instead of trying to install it.
-    bundledNodeDirs = [
-      "ComfyUI-Impact-Pack"
-      "rgthree-comfy"
-      "ComfyUI-KJNodes"
-      "ComfyUI-GGUF"
-      "ComfyUI-LTXVideo"
-      "ComfyUI-Florence2"
-      "ComfyUI_bitsandbytes_NF4"
-      "x-flux-comfyui"
-      "ComfyUI-MMAudio"
-      "PuLID_ComfyUI"
-      "ComfyUI-WanVideoWrapper"
-    ];
-
-    enabledModules = lib.filterAttrs (
-      name: module: module.enable && !(builtins.elem name bundledNodeDirs)
-    ) cfg.modules;
+    enabledModules = lib.filterAttrs (_: module: module.enable) cfg.modules;
     resolvedModules = lib.mapAttrs resolveModule enabledModules;
-
-    disabledBundledNodes =
-      builtins.filter (
-        name: builtins.hasAttr name cfg.modules && !cfg.modules.${name}.enable
-      )
-      bundledNodeDirs;
-
-    disabledBundledNodesEnv = lib.concatStringsSep " " disabledBundledNodes;
 
     userHome =
       if cfg.user != null && builtins.hasAttr cfg.user config.users.users
@@ -198,8 +201,6 @@
         )
       else "root";
   in {
-    imports = [inputs.comfyui-nix.nixosModules.default];
-
     options.programs.comfyui-manager = {
       enable = mkEnableOption "the comfyui-manager CLI and declarative ComfyUI modules";
 
@@ -223,16 +224,12 @@
           select a built-in module by name. Set `enable = false` to disable an
           entry without removing it.
 
-          The third-party nodes bundled by comfyui-nix can be turned off the
-          same way. Recognised names: `ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-LTXVideo`,
-          `ComfyUI-Florence2`, `ComfyUI_bitsandbytes_NF4`, `x-flux-comfyui`,
-          `ComfyUI-MMAudio`, `PuLID_ComfyUI` and `ComfyUI-WanVideoWrapper`.
-
-          Bundled nodes are linked by the comfyui-nix launcher, so this applies
-          to processes started by `comfyui-manager` (including the DMS plugin).
-          For the `services.comfyui` service, use its own
-          `services.comfyui.bundledCustomNodes` option instead.
+          The previously bundled nodes (`ComfyUI-Impact-Pack`, `rgthree-comfy`,
+          `ComfyUI-KJNodes` and `ComfyUI-GGUF`) are available as built-ins, so they
+          can be enabled or disabled by name just like any other module. All
+          custom nodes are linked into the shared base directory with
+          systemd-tmpfiles; they apply to the CLI, the DMS plugin and the
+          optional `services.comfyui` service alike.
         '';
         example = literalExpression ''
           {
@@ -256,7 +253,8 @@
         description = ''
           Modules that can be selected by name in
           {option}`programs.comfyui-manager.modules` without providing a source.
-          Currently this includes `ComfyUI-Anima-LLLite`.
+          These are `ComfyUI-Anima-LLLite`, `ComfyUI-Impact-Pack`, `rgthree-comfy`,
+          `ComfyUI-KJNodes` and `ComfyUI-GGUF`.
         '';
       };
 
@@ -288,9 +286,12 @@
         default = null;
         example = "/home/alice/.config/comfy-ui";
         description = ''
-          ComfyUI base directory whose `custom_nodes/` directory receives the
-          immutable modules. When null and {option}`programs.comfyui-manager.user`
-          is set, defaults to that user's `~/.config/comfy-ui`.
+          Shared ComfyUI base directory whose `custom_nodes/` directory receives
+          the immutable modules. When null and
+          {option}`programs.comfyui-manager.user` is set, defaults to that user's
+          `~/.config/comfy-ui`, matching the CLI default. When set, it is also
+          exported as `COMFY_HOME` (unless overridden) and used as
+          `services.comfyui.dataDir`.
 
           Modules are linked with `systemd-tmpfiles` using `L+`, so a declared
           module replaces any mutable directory of the same name. The source is a
@@ -302,9 +303,11 @@
         type = types.bool;
         default = false;
         description = ''
-          Also enable the `services.comfyui` systemd service from comfyui-nix.
-          Declared modules are added to `services.comfyui.customNodes` whether or
-          not the service is enabled.
+          Also enable nixpkgs' `services.comfyui` systemd service. It uses the
+          same ComfyUI package and data directory as the CLI. Note that the
+          service runs as `comfyui` by default; when the shared directory is
+          owned by another user, override
+          `systemd.services.comfyui.serviceConfig.User`/`Group` accordingly.
         '';
       };
 
@@ -368,11 +371,18 @@
 
       environment.systemPackages = [cfg.package];
 
-      environment.variables = lib.optionalAttrs (disabledBundledNodes != []) {
-        COMFYUI_DISABLED_BUNDLED_NODES = lib.mkDefault disabledBundledNodesEnv;
+      # Keep the CLI's runtime base directory in sync with the directory the
+      # custom-node links are created in. COMFY_HOME can still be overridden
+      # by the user or by the DMS plugin.
+      environment.variables = lib.optionalAttrs (installDir != null) {
+        COMFY_HOME = lib.mkDefault installDir;
       };
 
-      services.comfyui.customNodes = resolvedModules;
+      services.comfyui.package =
+        if cfg.package.passthru ? comfyui
+        then cfg.package.passthru.comfyui
+        else pkgs.comfyui;
+      services.comfyui.dataDir = lib.mkIf (installDir != null) installDir;
       services.comfyui.enable = lib.mkIf cfg.enableService true;
 
       systemd.tmpfiles.rules =

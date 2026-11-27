@@ -64,7 +64,7 @@ PluginSettings {
 
     StringSetting {
         settingKey: "extraArgs"
-        label: "Extra comfy-ui flags"
+        label: "Extra comfyui flags"
         description: "Whitespace-separated flags, for example: --highvram --preview-method auto. Quoting is not supported."
         placeholder: "--highvram"
         defaultValue: ""

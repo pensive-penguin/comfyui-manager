@@ -1,4 +1,4 @@
-{inputs, ...}: {
+{...}: {
   perSystem = {
     system,
     pkgs,
@@ -7,45 +7,72 @@
   }: let
     script = ./comfyui-manager.nu;
 
-    # Prefer the CUDA build on systems where it exists, otherwise fall back to
-    # the default (CPU) package.
-    comfyui =
-      inputs.comfyui-nix.packages.${system}.cuda
-      or inputs.comfyui-nix.packages.${system}.default;
+    # Impact Pack needs `segment_anything`, which is still not packaged in
+    # nixpkgs. Build it here; everything else comes from python3Packages.
+    segment-anything = pkgs.python3Packages.buildPythonPackage {
+      pname = "segment-anything";
+      version = "1.0";
+      format = "pyproject";
 
-    # comfyui-nix links its bundled third-party nodes unconditionally. This
-    # wrapper keeps that behaviour, but lets `COMFYUI_DISABLED_BUNDLED_NODES`
-    # (space-separated directory names) opt individual bundled nodes out at
-    # launch time without touching the rest of the bundle. It keeps the
-    # original passthru so it can also stand in as services.comfyui.package.
-    comfyuiPatched = pkgs.runCommandLocal "comfy-ui-bundled-filter" {
-      passthru = comfyui.passthru;
-    } ''
-      mkdir -p $out/bin
-      {
-        head -n 1 ${comfyui}/bin/comfy-ui
-        cat <<'BUNDLED_FILTER'
-link_bundled() {
-  local src="$1" dest="$2" name disabled
-  name="$(basename "$dest")"
-  for disabled in ''${COMFYUI_DISABLED_BUNDLED_NODES:-}; do
-    if [ "$name" = "$disabled" ]; then
-      rm -f "$dest"
-      return 0
-    fi
-  done
-  ln -sfn "$src" "$dest"
-}
-BUNDLED_FILTER
-        tail -n +2 ${comfyui}/bin/comfy-ui
-      } > $out/bin/comfy-ui
-      sed -i -E 's#^([[:space:]]*)ln -sfn ("[^"]*" "\$BASE_DIR/custom_nodes/[^"]*")#\1link_bundled \2#' $out/bin/comfy-ui
-      # Fail loudly if upstream changes the launcher shape and the rewrite
-      # silently no longer applies.
-      grep -q 'link_bundled "/nix/store' $out/bin/comfy-ui
-      chmod +x $out/bin/comfy-ui
-      ln -s $out/bin/comfy-ui $out/bin/comfyui
-    '';
+      src = pkgs.fetchFromGitHub {
+        owner = "facebookresearch";
+        repo = "segment-anything";
+        rev = "dca509fe793f601edb92606367a655c15ac00fdf";
+        hash = "sha256-28XHhv/hffVIpbxJKU8wfPvDB63l93Z6r9j1vBOz/P0=";
+      };
+
+      nativeBuildInputs = with pkgs.python3Packages; [setuptools wheel];
+
+      propagatedBuildInputs = with pkgs.python3Packages; [
+        torch
+        torchvision
+        numpy
+        opencv4
+        matplotlib
+        pillow
+      ];
+
+      doCheck = false;
+      pythonImportsCheck = ["segment_anything"];
+
+      meta = {
+        description = "Segment Anything Model (SAM) from Meta AI";
+        homepage = "https://github.com/facebookresearch/segment-anything";
+        license = lib.licenses.asl20;
+      };
+    };
+
+    # The nixpkgs comfyui wrapper unsets PYTHONPATH, so custom-node imports
+    # must be part of the wrapped Python environment instead of injected at
+    # launch time.
+    comfyuiExtraPackages = ps:
+      with ps;
+      [
+        comfyui-manager
+        natsort
+
+        # ComfyUI-Impact-Pack
+        scikit-image
+        piexif
+        scipy
+        numpy
+        opencv4
+        matplotlib
+        dill
+        segment-anything
+        sam2
+
+        # ComfyUI-KJNodes
+        color-matcher
+        mss
+
+        # ComfyUI-GGUF
+        gguf
+        sentencepiece
+        protobuf
+      ];
+
+    comfyui = pkgs.comfyui.override {extraPackages = comfyuiExtraPackages;};
 
     runtimeDeps = [
       pkgs.coreutils
@@ -58,8 +85,7 @@ BUNDLED_FILTER
       pkgs.systemd
       pkgs.util-linux
       pkgs.xdg-utils
-      (pkgs.python3.withPackages (ps: [ps.natsort]))
-      comfyuiPatched
+      comfyui
     ];
 
     # Install the nushell script under its final name so nushell's generated
@@ -81,7 +107,8 @@ BUNDLED_FILTER
         '';
       }).overrideAttrs (old: {
         passthru = (old.passthru or {}) // {
-          comfyui = comfyuiPatched;
+          comfyui = comfyui;
+          comfyuiExtraPackages = comfyuiExtraPackages;
         };
         meta =
           (old.meta or {})
@@ -96,5 +123,9 @@ BUNDLED_FILTER
   in {
     packages.comfyui-manager = package;
     packages.default = package;
+
+    checks.comfyui-manager-help = pkgs.runCommand "comfyui-manager-help" {} ''
+      ${lib.getExe package} --help > $out
+    '';
   };
 }

@@ -76,8 +76,8 @@ def manager-bin [] {
     if not ($override | is-empty) {
         $override | path expand
     } else {
-        # Prefer the installed wrapper. It supplies the runtime PATH (comfy-ui,
-        # python/natsort, lsof, and friends) to the systemd unit. Nu's `which`
+        # Prefer the installed wrapper. It supplies the runtime PATH (comfyui,
+        # lsof, and friends) to the systemd unit. Nu's `which`
         # reports the executing .nu script as a custom command, so query the
         # shell PATH instead.
         let found = (^sh -c "command -v comfyui-manager" | complete)
@@ -470,22 +470,11 @@ def fail-json [message: string, as_json: bool] {
 # Process helpers
 # ---------------------------------------------------------------------------
 
-def natsort-site-packages [] {
-    ^python3 -c "import natsort, os; print(os.path.dirname(os.path.dirname(natsort.__file__)))"
-    | str trim
-}
-
 def run-comfy [port: int, input: string, output: string] {
-    # comfy-ui reads these to find its writable base directory, and ComfyUI
-    # needs natsort on PYTHONPATH.
-    $env.COMFY_USER_DIR = (comfy-home)
-    let natsort = (natsort-site-packages)
-    let existing = ($env.PYTHONPATH? | default "")
-    $env.PYTHONPATH = if ($existing | is-empty) {
-        $natsort
-    } else {
-        $"($natsort):($existing)"
-    }
+    # nixpkgs' comfyui wrapper unsets PYTHONPATH; all Python dependencies are
+    # part of its wrapped environment. The base directory and database are
+    # pinned explicitly so state stays under COMFY_HOME.
+    let home = (comfy-home)
 
     let extra = (($env.COMFYUI_MANAGER_EXTRA_ARGS? | default "") | split row " " | where { |arg| $arg != "" })
     let fake_command = ($env.COMFYUI_MANAGER_COMFY_CMD? | default "")
@@ -495,7 +484,7 @@ def run-comfy [port: int, input: string, output: string] {
             # Test hook: exercise the lifecycle without starting ComfyUI.
             ^sh -c $fake_command
         } else {
-            ^comfy-ui --lowvram --enable-manager --disable-auto-launch $"--port=($port)" $"--input-directory=($input)" $"--output-directory=($output)" ...$extra
+            ^comfyui --lowvram --enable-manager --disable-auto-launch $"--base-directory=($home)" $"--database-url=sqlite:///($home)/user/comfyui.db" $"--port=($port)" $"--input-directory=($input)" $"--output-directory=($output)" ...$extra
         }
         ($env.LAST_EXIT_CODE? | default 0)
     } catch { |err|
@@ -552,7 +541,7 @@ def run-with-project [project: record, port: int, --stateful] {
             swap: null,
             exitCode: $code,
             updatedAt: (now),
-            error: (if $code == 0 { null } else { $"comfy-ui exited with code ($code)" })
+            error: (if $code == 0 { null } else { $"comfyui exited with code ($code)" })
         }
     }
 
@@ -652,10 +641,6 @@ def do-start [project: record, port: any, base_port: int] {
     let fake_command = ($env.COMFYUI_MANAGER_COMFY_CMD? | default "")
     if not ($fake_command | is-empty) {
         $args = ($args | append $"--setenv=COMFYUI_MANAGER_COMFY_CMD=($fake_command)")
-    }
-    let disabled_bundled = ($env.COMFYUI_DISABLED_BUNDLED_NODES? | default "")
-    if not ($disabled_bundled | is-empty) {
-        $args = ($args | append $"--setenv=COMFYUI_DISABLED_BUNDLED_NODES=($disabled_bundled)")
     }
     $args = ($args ++ [$self "_run" "--project-id" $project.id "--port" ($chosen_port | into string)])
 
