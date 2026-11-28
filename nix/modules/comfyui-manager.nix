@@ -6,6 +6,8 @@
     ...
   }: let
     cfg = config.programs.comfyui-manager;
+    nodeAliases = import ../custom-nodes/_aliases.nix;
+    customNodes = self.legacyPackages.${pkgs.stdenv.hostPlatform.system}.comfyCustomNodes or {};
 
     inherit (lib) mkEnableOption mkOption literalExpression types;
 
@@ -43,8 +45,31 @@
       options = {
         enable = mkOption {
           type = types.bool;
-          default = true;
-          description = "Whether to install this module.";
+          default = false;
+          description = ''
+            Whether to install this module. Modules are opt-in; the
+            `nixosModules.maximal` preset enables every built-in.
+          '';
+        };
+
+        package = mkOption {
+          type = types.nullOr types.package;
+          default = null;
+          description = ''
+            Explicit package to install for this module. Takes precedence over
+            built-in resolution, e.g.
+            `inputs.comfyui-manager.legacyPackages.<system>.comfyCustomNodes.impact-pack.overrideAttrs`.
+          '';
+        };
+
+        dirName = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = ''
+            Directory name under `custom_nodes/`. Defaults to the selected
+            package's `passthru.comfyuiDirName`, or to the attribute name for
+            ad-hoc sources.
+          '';
         };
 
         src = mkOption {
@@ -67,93 +92,19 @@
       };
     };
 
-    builtinModules = {
-      ComfyUI-Anima-LLLite = pkgs.fetchFromGitHub {
-        owner = "kohya-ss";
-        repo = "ComfyUI-Anima-LLLite";
-        rev = "b7495bd8eb876e334509976896702484ed19cdbb";
-        hash = "sha256-g6mrJiium79O9+mQUaLCJ6z0IkGnu3G+jBfaMrBkao8=";
-      };
+    # Canonical packages come from `legacyPackages.<system>.comfyCustomNodes`; the
+    # aliases file also provides upstream names for backwards compatibility.
+    builtinModules = customNodes;
 
-      # Previously bundled third-party nodes, pinned here so workflows keep
-      # working with the nixpkgs comfyui package.
-      "ComfyUI-Impact-Pack" = pkgs.fetchFromGitHub {
-        owner = "ltdrdata";
-        repo = "ComfyUI-Impact-Pack";
-        rev = "8.28";
-        hash = "sha256-V/gMPqo9Xx21+KpG5LPzP5bML9nGlHHMyVGoV+YgFWE=";
-      };
-
-      "rgthree-comfy" = pkgs.fetchFromGitHub {
-        owner = "rgthree";
-        repo = "rgthree-comfy";
-        rev = "2c5342a8cb0eaecaabf61435a5f37dd594c510ba";
-        hash = "sha256-Z3yKY+6VW5wfsOkI+LrNFd3oZMXKVITtinsNXVXFNec=";
-      };
-
-      "ComfyUI-KJNodes" = pkgs.fetchFromGitHub {
-        owner = "kijai";
-        repo = "ComfyUI-KJNodes";
-        rev = "c9869eade9920a1b949de07c4a197156006bcceb";
-        hash = "sha256-8jhXmMmIdf99bkxZjPXcorPUIpEPEIjFthSTwJUVj+Y=";
-      };
-
-      "ComfyUI-GGUF" = pkgs.fetchFromGitHub {
-        owner = "city96";
-        repo = "ComfyUI-GGUF";
-        rev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a";
-        hash = "sha256-/ZwecgxTTMo9J1whdEJci8lEkOy/yP+UmjbpOAA3BvU=";
-      };
-
-      "ComfyUI-Lora-Manager" = pkgs.fetchFromGitHub {
-        owner = "willmiao";
-        repo = "ComfyUI-Lora-Manager";
-        rev = "21dc58fec2aab4e41deb549058253b71afa5573c"; # v1.3.0
-        hash = "sha256-Lk10gZbYlD2XXzoccmBCcIBgzXAqFLArhmIZqHGInpc=";
-      };
-
-      "ComfyUI-Impact-Subpack" = pkgs.fetchFromGitHub {
-        owner = "ltdrdata";
-        repo = "ComfyUI-Impact-Subpack";
-        rev = "31b729aaa8d5e5c183e2d5b942064a204eec2d34"; # 1.3.6
-        hash = "sha256-/px05e4JcvhVe2DGC+6UqjbHxoA/IvB55gjKXmsDZa4=";
-      };
-
-      # Upstream imports win32* / ctypes.windll unconditionally. This flake
-      # targets unix, where those imports cannot work and pywin32 is not
-      # available, so a sys.platform guard would be dead code. The patch drops
-      # the imports and switches CAP_DSHOW to a portable backend instead.
-      # Direct Screen Capture's window/window_crop modes remain unavailable.
-      "ComfyUI_toyxyz_test_nodes" = let
-        src = pkgs.fetchFromGitHub {
-          owner = "toyxyz";
-          repo = "ComfyUI_toyxyz_test_nodes";
-          rev = "8291d9b65d56d65be55ee0f31df073d42b7d0eb6";
-          hash = "sha256-vwmcIM7TjvJ4HAYsCPg/1qa52d+K+1P5DgWbDx4/1FI=";
-        };
-      in
-        pkgs.stdenv.mkDerivation {
-          pname = "comfyui-toyxyz-test-nodes";
-          version = "1.0.6";
-          inherit src;
-          patches = [ ../patches/comfyui-toyxyz-linux.patch ];
-          dontConfigure = true;
-          dontBuild = true;
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out
-            cp -R ./. $out/
-            runHook postInstall
-          '';
-          meta = {
-            description = "Toyxyz's frequently used ComfyUI custom nodes (Linux-patched)";
-            homepage = "https://github.com/toyxyz/ComfyUI_toyxyz_test_nodes";
-          };
-        };
-    };
+    canonicalName = name:
+      if builtins.hasAttr name nodeAliases
+      then builtins.getAttr name nodeAliases
+      else name;
 
     resolveModule = name: module:
-      if module.src != null
+      if module.package != null
+      then module.package
+      else if module.src != null
       then module.src
       else if module.fetchGit != null
       then
@@ -167,17 +118,31 @@
             inherit (module.fetchGit) url rev;
             submodules = module.fetchGit.fetchSubmodules;
           }
-      else if builtins.hasAttr name builtinModules
-      then builtins.getAttr name builtinModules
+      else if builtins.hasAttr (canonicalName name) builtinModules
+      then builtins.getAttr (canonicalName name) builtinModules
       else
         throw ''
-          programs.comfyui-manager.modules.${name}: no `src` or `fetchGit` was given,
+          programs.comfyui-manager.modules.${name}: no `package`, `src` or `fetchGit` was given,
           and `${name}` is not a built-in module.
           Built-in modules: ${lib.concatStringsSep ", " (builtins.attrNames builtinModules)}
         '';
 
+    resolvedModule = name: module: {
+      source = resolveModule name module;
+      dirName =
+        if module.dirName != null
+        then module.dirName
+        else let
+          canonical = canonicalName name;
+        in
+          if builtins.hasAttr canonical builtinModules
+            && builtinModules.${canonical}.passthru ? comfyuiDirName
+          then builtinModules.${canonical}.passthru.comfyuiDirName
+          else name;
+    };
+
     enabledModules = lib.filterAttrs (_: module: module.enable) cfg.modules;
-    resolvedModules = lib.mapAttrs resolveModule enabledModules;
+    resolvedModules = lib.mapAttrs resolvedModule enabledModules;
 
     userHome =
       if cfg.user != null && builtins.hasAttr cfg.user config.users.users
@@ -262,31 +227,41 @@
         default = {};
         description = ''
           Declarative ComfyUI modules (custom nodes) installed immutably from the
-          Nix store. The attribute name becomes the directory name under
-          `custom_nodes/`.
+          Nix store. Modules are opt-in: set `enable = true` to create a symlink
+          under `custom_nodes/`. The `nixosModules.maximal` preset enables every
+          built-in for an opt-out experience.
 
-          A module can provide {option}`programs.comfyui-manager.modules.<name>.src`,
-          {option}`programs.comfyui-manager.modules.<name>.fetchGit`, or neither to
-          select a built-in module by name. Set `enable = false` to disable an
-          entry without removing it.
+          Built-ins are resolved from
+          `legacyPackages.<system>.comfyCustomNodes`. They can be overridden
+          per module with the `package` option.
+          Canonical keys are `anima-llllite`, `impact-pack`, `rgthree`,
+          `kj-nodes`, `gguf`, `lora-manager`, `impact-subpack` and
+          `toyxyz-test-nodes`. Upstream names such as `ComfyUI-Impact-Pack` and
+          the lowercase `comfyui_toyxyz_test_nodes` are accepted as aliases.
 
-          The previously bundled nodes (`ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes` and `ComfyUI-GGUF`), plus `ComfyUI-Lora-Manager`,
-          `ComfyUI-Impact-Subpack` and `ComfyUI_toyxyz_test_nodes`, are available
-          as built-ins, so they can be enabled or disabled by name just like any
-          other module. `ComfyUI_toyxyz_test_nodes` carries a Linux patch: the
-          Windows-only `win32*` / `ctypes.windll` imports are removed and
-          `cv2.CAP_DSHOW` is replaced with a portable backend, so its
-          `Direct Screen Capture` node only supports the `Default` capture mode
-          here. All custom nodes are linked into the shared base directory with
-          systemd-tmpfiles; they apply to the CLI, the DMS plugin and the
-          optional `services.comfyui` service alike.
+          A module can override the chosen package with
+          {option}`programs.comfyui-manager.modules.<name>.package`, or provide
+          {option}`programs.comfyui-manager.modules.<name>.src` /
+          {option}`programs.comfyui-manager.modules.<name>.fetchGit` for ad-hoc
+          nodes. {option}`programs.comfyui-manager.modules.<name>.dirName`
+          controls the symlink name; built-ins default to their upstream
+          directory name.
+
+          `toyxyz-test-nodes` carries a Linux patch: the Windows-only `win32*` /
+          `ctypes.windll` imports are removed and `cv2.CAP_DSHOW` is replaced
+          with a portable backend, so its `Direct Screen Capture` node only
+          supports the `Default` capture mode here. All custom nodes are linked
+          into the shared base directory with systemd-tmpfiles; they apply to
+          the CLI, the DMS plugin and the optional `services.comfyui` service
+          alike.
         '';
         example = literalExpression ''
           {
-            ComfyUI-Anima-LLLite = {}; # built-in
+            "impact-pack".enable = true;
+            "toyxyz-test-nodes".enable = true;
 
             my-node = {
+              enable = true;
               fetchGit = {
                 url = "https://github.com/example/my-node";
                 rev = "0123456789abcdef0123456789abcdef01234567";
@@ -302,13 +277,12 @@
         default = builtinModules;
         readOnly = true;
         description = ''
-          Modules that can be selected by name in
+          Packages selectable by name in
           {option}`programs.comfyui-manager.modules` without providing a source.
-          These are `ComfyUI-Anima-LLLite`, `ComfyUI-Impact-Pack`, `rgthree-comfy`,
-          `ComfyUI-KJNodes`, `ComfyUI-GGUF`, `ComfyUI-Lora-Manager`,
-          `ComfyUI-Impact-Subpack` and `ComfyUI_toyxyz_test_nodes`. The latter is
-          patched for unix in `nix/patches/comfyui-toyxyz-linux.patch`; see the
-          `modules` option for the captured-node limitation.
+          This is `legacyPackages.<system>.comfyCustomNodes`, including canonical
+          keys and compatibility aliases. `toyxyz-test-nodes` is patched for unix in
+          `nix/patches/comfyui-toyxyz-linux.patch`; see the `modules` option for
+          the captured-node limitation.
         '';
       };
 
@@ -445,7 +419,7 @@
             "d ${installDir}/custom_nodes 0755 ${owner} ${group} -"
           ]
           ++ lib.mapAttrsToList (
-            name: source: "L+ ${installDir}/custom_nodes/${name} - - - - ${source}"
+            _: module: "L+ ${installDir}/custom_nodes/${module.dirName} - - - - ${module.source}"
           )
           resolvedModules
         )
@@ -455,6 +429,13 @@
           "L+ ${dmsConfigDir}/plugins/comfyuiManager - - - - ${cfg.dmsPlugin.package}/share/dms/plugins/comfyuiManager"
         ];
     };
+  };
+
+  # Opt-out compatibility preset: enable every canonical built-in.
+  flake.nixosModules.maximal = {lib, ...}: {
+    programs.comfyui-manager.modules = lib.genAttrs (
+      lib.unique (lib.attrValues (import ../custom-nodes/_aliases.nix))
+    ) (_: {enable = true;});
   };
 
   flake.nixosModules.default = self.nixosModules.comfyui-manager;

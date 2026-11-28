@@ -19,40 +19,55 @@ points `services.comfyui.dataDir` at it. Custom nodes declared through
 
 ## Custom nodes
 
-Built-in, pinned sources are available for:
+Pinned custom-node packages are available as flake outputs under
+`legacyPackages.<system>.comfyCustomNodes` (e.g.
+`nix build .#legacyPackages.x86_64-linux.comfyCustomNodes.toyxyz-test-nodes`).
+Canonical names are:
 
-- `ComfyUI-Anima-LLLite`
-- `ComfyUI-Impact-Pack`
-- `rgthree-comfy`
-- `ComfyUI-KJNodes`
-- `ComfyUI-GGUF`
-- `ComfyUI-Lora-Manager`
-- `ComfyUI-Impact-Subpack`
-- `ComfyUI_toyxyz_test_nodes` (Linux-patched)
+- `anima-llllite`
+- `impact-pack`
+- `rgthree`
+- `kj-nodes`
+- `gguf`
+- `lora-manager`
+- `impact-subpack`
+- `toyxyz-test-nodes` (Linux-patched)
 
-Enable them with empty attribute sets, or disable one with `enable = false`:
+Upstream directory names and the lowercase `comfyui_toyxyz_test_nodes` are
+accepted as aliases in the NixOS module. All of them opt in explicitly; the
+`nixosModules.maximal` preset enables every built-in for an opt-out style:
 
 ```nix
 programs.comfyui-manager = {
   enable = true;
   user = "alice";
   modules = {
-    "ComfyUI-Impact-Pack" = {};
-    "rgthree-comfy" = {};
-    "ComfyUI-KJNodes" = {};
-    "ComfyUI-GGUF" = {};
-    "ComfyUI-Lora-Manager" = {};
-    "ComfyUI-Impact-Subpack" = {};
-    "ComfyUI_toyxyz_test_nodes" = {};
+    "impact-pack".enable = true;
+    "toyxyz-test-nodes".enable = true;
+
+    # Aliases also work:
+    "ComfyUI-KJNodes".enable = true;
   };
 };
 ```
 
-Their Python dependencies are included in ComfyUI's wrapped environment via
-`extraPackages`. `segment_anything` is built locally because nixpkgs does not
-package it.
+For the old opt-out behavior, import
+`inputs.comfyui-manager.nixosModules.maximal` instead.
 
-`ComfyUI_toyxyz_test_nodes` is patched for this unix/NixOS build in
+Node packages can be overridden directly:
+
+```nix
+programs.comfyui-manager.modules."impact-pack".package =
+  inputs.comfyui-manager.legacyPackages.x86_64-linux.comfyCustomNodes.impact-pack.overrideAttrs {
+    patches = [ ./my-impact-fix.patch ];
+  };
+```
+
+Each node package declares its Python dependencies through `passthru.pythonDeps`;
+they are collected into ComfyUI's wrapped `extraPackages` environment.
+`segment_anything` is built locally because nixpkgs does not package it.
+
+`toyxyz-test-nodes` is patched for this unix/NixOS build in
 `nix/patches/comfyui-toyxyz-linux.patch`. Upstream imports `win32*` and
 `ctypes.windll`/`wintypes` at module load time, but `pywin32` is Windows-only
 and `sys.platform` is never `"win32"` here; those imports are removed rather

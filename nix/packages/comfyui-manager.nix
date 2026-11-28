@@ -1,4 +1,4 @@
-{...}: {
+{self, ...}: {
   perSystem = {
     system,
     pkgs,
@@ -6,98 +6,22 @@
     ...
   }: let
     script = ./comfyui-manager.nu;
-
-    # Impact Pack needs `segment_anything`, which is still not packaged in
-    # nixpkgs. Build it here; everything else comes from python3Packages.
-    segment-anything = pkgs.python3Packages.buildPythonPackage {
-      pname = "segment-anything";
-      version = "1.0";
-      format = "pyproject";
-
-      src = pkgs.fetchFromGitHub {
-        owner = "facebookresearch";
-        repo = "segment-anything";
-        rev = "dca509fe793f601edb92606367a655c15ac00fdf";
-        hash = "sha256-28XHhv/hffVIpbxJKU8wfPvDB63l93Z6r9j1vBOz/P0=";
-      };
-
-      nativeBuildInputs = with pkgs.python3Packages; [setuptools wheel];
-
-      propagatedBuildInputs = with pkgs.python3Packages; [
-        torch
-        torchvision
-        numpy
-        opencv4
-        matplotlib
-        pillow
-      ];
-
-      doCheck = false;
-      pythonImportsCheck = ["segment_anything"];
-
-      meta = {
-        description = "Segment Anything Model (SAM) from Meta AI";
-        homepage = "https://github.com/facebookresearch/segment-anything";
-        license = lib.licenses.asl20;
-      };
-    };
+    comfyCustomNodes = self.legacyPackages.${system}.comfyCustomNodes;
 
     # The nixpkgs comfyui wrapper unsets PYTHONPATH, so custom-node imports
     # must be part of the wrapped Python environment instead of injected at
-    # launch time.
+    # launch time. Each node package declares its own deps via passthru.
+    nodeDeps = lib.unique (
+      lib.concatMap (node: node.passthru.pythonDeps or []) (lib.attrValues comfyCustomNodes)
+    );
+
     comfyuiExtraPackages = ps:
       with ps;
       [
         comfyui-manager
         natsort
-
-        # ComfyUI-Impact-Pack
-        scikit-image
-        piexif
-        scipy
-        numpy
-        opencv4
-        matplotlib
-        dill
-        segment-anything
-        sam2
-
-        # ComfyUI-KJNodes
-        color-matcher
-        mss
-
-        # ComfyUI-GGUF
-        gguf
-        sentencepiece
-        protobuf
-
-        # ComfyUI-Lora-Manager
-        aiohttp
-        aiohttp-socks
-        jinja2
-        safetensors
-        olefile
-        toml
-        gitpython
-        aiosqlite
-        beautifulsoup4
-        platformdirs
-        pyyaml
-        brotli
-
-        # ComfyUI-Impact-Subpack
-        ultralytics
-
-        # ComfyUI_toyxyz_test_nodes (Linux-patched)
-        av
-        einops
-        trimesh
-        rapidfuzz
-        torchaudio
-        huggingface-hub
-        imageio-ffmpeg
-        psutil
-      ];
+      ]
+      ++ nodeDeps;
 
     comfyui = pkgs.comfyui.override {extraPackages = comfyuiExtraPackages;};
 
